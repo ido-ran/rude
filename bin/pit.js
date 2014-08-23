@@ -27,12 +27,14 @@ function strip(path){
 	return paths.pop()
 }
 
-var assetfile
+var assetfile;
+var gitrootPath;
 try{
-	assetfile = Path.join(git.gitroot('.'),'assets.json')
+    gitrootPath = git.gitroot('.');
+	assetfile = Path.join(gitrootPath,'assets.json')
 }catch(e){
 	log.Warn('No Git Repository Found')
-	assetfile = 'asset.json'
+	assetfile = 'no-git.json'
 }
 
 program.version('0.0.0');
@@ -82,7 +84,7 @@ program
 
 // TODO: Refactor this into a class
 function insert(db,doc,id,name,data,json,hash,file){
-    
+    log.Info("about to insert resource %s", id);
 	db.insert(doc, id, function(err,res){
 		
 		if(err && err.error=='conflict'){
@@ -99,7 +101,7 @@ function insert(db,doc,id,name,data,json,hash,file){
 				var attachment	= attachments[0];
 				log.Info('Attachment Already Exists with Name %s',attachment.white);
 				
-				json[attachment] = hash
+				json[name] = hash
 				fs.writeFileSync(file, JSON.stringify(json,null,'\t'))
 				
 				log.Info('Use Asset with `rude(\'%s\')`', attachment);
@@ -138,15 +140,15 @@ function insert(db,doc,id,name,data,json,hash,file){
 
 program
 .command('add')
-.option('-f, --file <NAME>', 'track asset using NAME', null)
 .description('Track a new asset in the local database')
 .action(function(asset,command){
 	if(asset == 'assets.json') return log.Error('Cannot Track Asset File')
 	if(arguments.length != 2 ) return log.Error('Please Specify an Asset to Track')
 	
+	log.Info("asset=%s",asset);
 	var db     = connect(program.host,program.port,program.name)
 	
-	var name   = command.file || strip(asset)
+	log.Info("command.file=%s",command.file);
 	var shasum = crypto.createHash('sha1');
 	
 	if(!fs.existsSync(asset)) return log.Error('Nothing Exists at `%s`',asset)
@@ -162,11 +164,15 @@ program
 	var hash   = shasum.update(data).digest('hex')
 	
 	var extn   = Path.extname(asset)
-	var path   = name
+	var assetPath   = Path.resolve(asset)
+	log.Info('asset path %s', assetPath)
+	// Calculate the relative path from git root to the asset. +1 removes the first slash.
+	var assetGitPath = assetPath.substring(gitrootPath.length + 1)
+	log.Info('asset git path %s', assetGitPath)
 	
 	var id = hash
 	
-	insert(db,{},id,name,data,json,hash,program.manifest)
+	insert(db,{},id,assetGitPath,data,json,hash,program.manifest)
 	
 })
 
@@ -319,18 +325,12 @@ if(process.argv[2] == 'ls') process.argv[2] = 'list'
 program.parse(process.argv)
 
 if(program.args.length==0) {
-	console.log('      ____  __  ______  ______'.red)
-	console.log('     / __ \\/ / / / __ \\/ ____/'.red)
-	console.log('    / /_/ / / / / / / / __/   '.red)
-	console.log('   / _  _/ /_/ / /_/ / /___   '.red)
-	console.log('  /_/ |_|\\____/_____/_____/   '.red)
+                   
+	console.log('______ _____ _____'.red)
+	console.log('| ___ \_   _|_   _|'.red)
+	console.log('| |_/ / | |   | | '.red)
+	console.log('|  __/  | |   | |  '.red)
+	console.log('| |    _| |_  | |  '.red)
+	console.log('\\_|    \\___/  \\_/  '.red)
 	program.help();
 }
-
-
-
-
-
-
-
-
