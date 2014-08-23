@@ -13,6 +13,10 @@ var rude    = require('../index')
 var log     = require('../lib/log')
 var git     = require('../lib/git')
 
+var async = require('async')
+
+var ATTACHMENT_NAME = 'file'
+
 function connect(host,port,database){
 	var url = util.format('http://%s:%s/%s',host,port,database)
 	var db  = nano(url)
@@ -27,6 +31,19 @@ function strip(path){
 	return paths.pop()
 }
 
+function mkdirp(path) {
+    var dirs = path.split('/')
+    var relativePath = '/';
+    while (dirs.length > 0) {
+        var dir = dirs.shift()
+        relativePath = Path.join(relativePath, dir)
+        
+        if (!fs.existsSync(relativePath)) {
+            fs.mkdirSync(relativePath);
+        }
+    }
+}
+
 var assetfile;
 var gitrootPath;
 try{
@@ -37,7 +54,7 @@ try{
 	assetfile = 'no-git.json'
 }
 
-program.version('0.0.0');
+program.version('0.1.0');
 program.option('-n, --name      <NAME>' , 'use CouchDB database NAME'    ,'rude')
 program.option('-H, --host      <HOST>' , 'connect to CouchDB host NAME' ,'localhost')
 program.option('-p, --port      <PORT>' , 'connect to CouchDB port PORT' ,5984)
@@ -101,6 +118,9 @@ function insert(db,doc,id,name,data,json,hash,file){
 				var attachment	= attachments[0];
 				log.Info('Attachment Already Exists with Name %s',attachment.white);
 				
+				// even if the file is already exist in couchdb we link the asset name
+				// to this hash. This can happen when file with the same content
+				// is added twice to pit.
 				json[name] = hash
 				fs.writeFileSync(file, JSON.stringify(json,null,'\t'))
 				
@@ -122,11 +142,10 @@ function insert(db,doc,id,name,data,json,hash,file){
 				rev: res.rev
 			}
 		
-			db.attachment.insert(id, name, data, type, opts, function(err,ok){
+			db.attachment.insert(id, ATTACHMENT_NAME, data, type, opts, function(err,ok){
 				if(err) return log.Error(err)
 			
 				log.Okay('Asset Added:',name)
-				log.Info('Use Asset with `rude(\'%s\')`',name)
 			
 				json[name] = hash
 				fs.writeFileSync(file, JSON.stringify(json,null,'\t'))
@@ -172,7 +191,10 @@ program
 	
 	var id = hash
 	
-	insert(db,{},id,assetGitPath,data,json,hash,program.manifest)
+	var doc = {
+	    'originalPath': assetGitPath
+	};
+	insert(db,doc,id,assetGitPath,data,json,hash,program.manifest)
 	
 })
 
@@ -258,6 +280,59 @@ program
 	
 	publishers[prot]( json, db, dest )
 	
+})
+
+program
+.command('checkout')
+.description('Checkout files to your working directory')
+.action(function(command){
+	
+	var db   = connect(program.host,program.port,program.name)
+	var file = fs.readFileSync(program.manifest)
+	var json = JSON.parse(file)
+	
+	var currDir = Path.resolve('.')
+	
+//	publishers[prot]( json, db, dest )
+
+	log.Info('Checking out content to working directory',currDir)
+
+	async.forEach(Object.keys(json),function(name,done){
+		var hash = json[name]
+		
+		log.Info("Requesting resource %s", hash)
+		db.attachment.get(hash, ATTACHMENT_NAME, function(err,body){
+			if(err) {
+			    done(err);
+			    return log.Error(err)
+		    }
+		    			
+			var file_path = Path.join(gitrootPath,name)
+
+            // calculate the file directory relative to gitroot
+			var dir_path = Path.dirname(file_path)
+			//dir_path = dir_path.substring(gitrootPath.length + 1)
+
+            if (!fs.existsSync(dir_path)) {
+			    mkdirp(dir_path)
+		    }
+		    
+		    if (!fs.existsSync(file_path)) {
+			    fs.writeFileSync(file_path, body)
+			    log.Info('√ %s' ,name)
+		    } else {
+		        log.Info('Already Exist %s', name)
+		    }
+			
+			done(err)
+		})
+	},function(err) {
+	    if (err) {
+	        log.Error('Fail to checkout files %s', err)
+	    } else {
+	        log.Okay('Checkout complete successfully')
+	    }
+	})
 })
 
 function pad(string,min){
